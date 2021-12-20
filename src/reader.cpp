@@ -7,9 +7,6 @@
 
 const uint32_t    message_type_frame = 0;
 const DA_img_type DA_img_type_RGB24  = 0;
-const DA_img_type DA_img_type_GRAY8  = 1;
-const DA_img_type DA_img_type_BITMAP = 2;
-const DA_img_type DA_img_type_JPEG   = 3;
 
 void do_read_frames(int fd, void * const context, DA_read_frames_cb cb);
 bool read_with_retry(int fd, char *buf, size_t len) {
@@ -41,6 +38,7 @@ void DA_read_frames(int fd, void * const context, DA_read_frames_cb cb) {
 
 class img_reader {
     int                     fd;
+    uint32_t                width, height;
     void * const            context;
     DA_read_frames_cb const cb;
     DA_img_type             type;
@@ -51,8 +49,8 @@ class img_reader {
         std::cerr << "empty cb" << std::endl;
         throw std::string("empty cb");
       }
-      char *buf = (char *)malloc(8);
-      if (! read_with_retry(fd, buf, 8)) {
+      char *buf = (char *)malloc(16);
+      if (! read_with_retry(fd, buf, 16)) {
         std::cerr << "init failed" << std::endl;
         throw std::string("init failed");
       }
@@ -61,28 +59,32 @@ class img_reader {
         std::cerr << "Wrong message type! not frame" << std::endl;
         throw std::string("Wrong message type! not frame");
       }
-      type = P [1];
+      type   = P [1];
+      width  = P [2];
+      height = P [3];
       free(buf);
     }
     void run() {
       /*
        * data from fd:
-       * [1]        message_type --\
-       * [2]        image_type   ---*------ read during init
-       * [3]        depth     \          \
-       * [4]        channel   |          |
-       * [5]        width     *-> header *- a session
-       * [6]        height    |          |
-       * [7]        size      /          |
-       * [8:8+size] img data  -> body    /
+       * [0:3]               message_type
+       * [4:7]               image_type
+       * [8:11]              width
+       * [12:15]             height
+       * --- loop begin ---
+       * [16:19]             size1
+       * [20:19+size]        img1 data
+       * [20+size:23+size]   size2
+       * [24+size:23+2*size] img2 data
+       * ...
        */
-      char * const header_buf = (char *)malloc(20);
+      char * const header_buf = (char *)malloc(4);
       char        *body_buf   = nullptr;
 
       char *header_ptr = header_buf;
       char *body_ptr   = body_buf;
 
-      size_t body_size = 0, header_size = 20;
+      size_t body_size = 0, header_size = 4;
 
       DA_img img {};
 
@@ -97,11 +99,11 @@ class img_reader {
         }
         if (read_with_retry(fd, header_buf, header_size)) {
           uint32_t *P = (uint32_t *)header_buf;
-          img.depth   = P [0];
-          img.channel = P [1];
-          img.width   = P [2];
-          img.height  = P [3];
-          img.size    = P [4];
+          img.depth   = 8;
+          img.channel = 3;
+          img.width   = width;
+          img.height  = height;
+          img.size    = P [0];
           img.type    = type;
         } else {
           break;
