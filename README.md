@@ -10,6 +10,6 @@ read image/video from socket file
 mkdir build
 cd build
 cmake ..
-make
+make 
 sudo make install
 ```
